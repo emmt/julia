@@ -99,21 +99,6 @@ jl_genericmemory_t *_new_genericmemory_(jl_value_t *mtype, size_t nel, int8_t is
 
 JL_DLLEXPORT jl_genericmemory_t *jl_string_to_genericmemory(jl_value_t *str);
 
-JL_DLLEXPORT jl_array_t *jl_string_to_array(jl_value_t *str)
-{
-    jl_task_t *ct = jl_current_task;
-    jl_genericmemory_t *mem = jl_string_to_genericmemory(str);
-    JL_GC_PUSH1(&mem);
-    int ndimwords = 1;
-    int tsz = sizeof(jl_array_t) + ndimwords*sizeof(size_t);
-    jl_array_t *a = (jl_array_t*)jl_gc_alloc(ct->ptls, tsz, jl_array_uint8_type);
-    a->ref.mem = mem;
-    a->ref.ptr_or_offset = mem->ptr;
-    a->dimsize[0] = mem->length;
-    JL_GC_POP();
-    return a;
-}
-
 JL_DLLEXPORT jl_array_t *jl_ptr_to_array_1d(jl_value_t *atype, void *data,
                                             size_t nel, int own_buffer)
 {
@@ -319,22 +304,8 @@ JL_DLLEXPORT jl_value_t *jl_alloc_string(size_t len)
     jl_task_t *ct = jl_current_task;
     jl_value_t *s;
     jl_ptls_t ptls = ct->ptls;
-    const size_t allocsz = sz + sizeof(jl_taggedvalue_t);
-    if (sz <= GC_MAX_SZCLASS) {
-        int pool_id = jl_gc_szclass_align8(allocsz);
-        jl_gc_pool_t *p = &ptls->heap.norm_pools[pool_id];
-        int osize = jl_gc_sizeclasses[pool_id];
-        // We call `jl_gc_pool_alloc_noinline` instead of `jl_gc_pool_alloc` to avoid double-counting in
-        // the Allocations Profiler. (See https://github.com/JuliaLang/julia/pull/43868 for more details.)
-        s = jl_gc_pool_alloc_noinline(ptls, (char*)p - (char*)ptls, osize);
-    }
-    else {
-        if (allocsz < sz) // overflow in adding offs, size was "negative"
-            jl_throw(jl_memory_exception);
-        s = jl_gc_big_alloc_noinline(ptls, allocsz);
-    }
+    s = (jl_value_t*)jl_gc_alloc(ptls, sz, jl_string_type);
     jl_set_typetagof(s, jl_string_tag, 0);
-    maybe_record_alloc_to_profile(s, len, jl_string_type);
     *(size_t*)s = len;
     jl_string_data(s)[len] = 0;
     return s;
